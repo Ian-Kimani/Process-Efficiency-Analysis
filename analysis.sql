@@ -148,6 +148,36 @@ FROM customers
 GROUP BY customer_state
 ORDER BY count DESC;
 
+WITH state_totals AS (
+    SELECT
+        c.customer_state,
+        COUNT(*) AS total_orders
+    FROM orders o
+    JOIN customers c
+    ON o.customer_id = c.customer_id
+    GROUP BY c.customer_state
+),
+state_cancellations AS (
+    SELECT
+        c.customer_state,
+        COUNT(*) AS cancelled_orders
+    FROM orders o
+    JOIN customers c
+    ON o.customer_id = c.customer_id
+    WHERE o.order_status = 'canceled'
+    GROUP BY c.customer_state
+)
+SELECT
+    t.customer_state,
+    cancelled_orders,
+    total_orders,
+    (cancelled_orders::float / total_orders) * 100 AS cancellation_percentage_rate
+FROM state_totals t
+JOIN state_cancellations s
+ON t.customer_state = s.customer_state
+ORDER BY cancellation_percentage_rate DESC;
+
+
 
 -- Do certain sellers cancel more?
 SELECT
@@ -210,3 +240,55 @@ AND (
     order_delivered_carrier_date IS NOT NULL
     OR order_delivered_customer_date IS NOT NULL
 );
+-- Approximately 12% of cancelled orders show downstream delivery activity, indicating potential inconsistencies between order status and logistics events
+-- showing its either asynchromous updates colliding, partial shipments, late cancellations or bad rreconcilliation between services
+
+-- The dataset does not provide an explicit cancellation timestamp.Therefore, cancellation timing was inferred using approval and purchase timestamps as upper-bound proxies.Findings should be interpreted as indicative rather than exact
+
+SELECT
+    order_id,
+    order_status,
+    (order_approved_at IS NOT NULL)::int AS approved,
+    (order_delivered_carrier_date IS NOT NULL)::int AS sent_to_carrier,
+    (order_delivered_customer_date IS NOT NULL)::int AS delivered
+FROM orders;
+
+SELECT
+    order_status,
+    AVG((order_approved_at IS NOT NULL)::int) AS approval_rate,
+    AVG((order_delivered_carrier_date IS NOT NULL)::int) AS carrier_rate,
+    AVG((order_delivered_customer_date IS NOT NULL)::int) AS delivery_rate
+FROM orders
+WHERE order_status IN ('delivered', 'canceled')
+GROUP BY order_status;
+
+SELECT
+    COUNT(*) AS impossible_orders
+FROM orders
+WHERE order_status = 'canceled'
+AND order_delivered_customer_date IS NOT NULL;
+
+SELECT
+    order_status,
+    AVG(order_estimated_delivery_date - order_purchase_timestamp) AS avg_estimated_window
+FROM orders
+WHERE order_status IN ('delivered', 'canceled')
+GROUP BY order_status;
+
+
+-- DELIVERY PERFORMANCE
+
+-- Delivered orders
+SELECT *
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date IS NOT NULL
+AND order_estimated_delivery_date IS NOT NULL;
+
+SELECT
+    (order_delivered_customer_date::timestamp - order_estimated_delivery_date::timestamp) AS delivery_delay
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date IS NOT NULL
+AND order_estimated_delivery_date IS NOT NULL
+AND (order_delivered_customer_date::timestamp - order_estimated_delivery_date::timestamp) > 0;
