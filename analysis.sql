@@ -21,6 +21,7 @@ WHERE
 
 
 
+-- To check where delays happen, where time is maintained,, etc
 WITH joined_orders AS (
     SELECT
         o.order_id,
@@ -87,3 +88,125 @@ SELECT
     COUNT(order_delivered_customer_date) AS delivered_orders
 FROM orders
 WHERE order_approved_at IS NOT NULL;
+
+-- a failure dataset to know the cancelled orders
+SELECT *
+FROM orders
+WHERE order_status = 'canceled';
+
+-- Check whether the orders were cancelled before or after approval
+SELECT
+    COUNT(*) AS total_cancelled,
+    COUNT(order_approved_at) AS approved_before_cancel
+FROM orders
+WHERE order_status = 'canceled';
+-- 484 orders were cancelled after approval
+
+-- Does cancellation correlate with price
+-- if cancelled orders are more expensive - seller failure
+SELECT 
+    AVG(oi.price) AS avg_price
+FROM orders o
+JOIN order_items oi
+ON o.order_id = oi.order_id; 
+
+SELECT 
+    MAX(price) AS max_price
+FROM order_items;
+
+SELECT 
+    price AS prices
+FROM order_items; 
+ 
+
+SELECT
+    AVG(oi.price) AS avg_price
+FROM orders o
+JOIN order_items oi
+ON o.order_id = oi.order_id
+WHERE o.order_status = 'canceled';
+
+-- The whole average price was 120, the cancelled average price was 175
+-- many cancelled orders,, their prices were higher than the average price
+
+-- Are cancellations tied to a certain region??
+-- Can show that maybe infrastructure, distance , security etc
+SELECT
+    c.customer_state,
+    COUNT(*) AS cancellations
+FROM orders o
+JOIN customers c
+ON o.customer_id = c.customer_id
+WHERE o.order_status = 'canceled'
+GROUP BY c.customer_state
+ORDER BY cancellations DESC;
+-- yes alot of cancellations happen in SP state
+
+SELECT customer_state,
+    COUNT(*) AS count
+FROM customers 
+GROUP BY customer_state
+ORDER BY count DESC;
+
+
+-- Do certain sellers cancel more?
+SELECT
+    oi.seller_id,
+    COUNT(*) AS cancellations
+FROM orders o
+JOIN order_items oi
+ON o.order_id = oi.order_id
+WHERE o.order_status = 'canceled'
+GROUP BY oi.seller_id
+ORDER BY cancellations DESC
+LIMIT 10;
+
+SELECT *
+FROM orders
+WHERE order_status = 'canceled'
+;
+
+-- Time taken to cancel orders
+SELECT
+    CASE
+        WHEN order_approved_at IS NULL THEN 'cancelled_before_approval'
+        ELSE 'cancelled_after_approval'
+    END AS cancel_stage,
+    COUNT(*) AS orders
+FROM orders
+WHERE order_status = 'canceled'
+GROUP BY cancel_stage;
+-- This shows there is a seller/ logistics failure
+
+
+-- Checks the time used for orders to be approved between cancelled and delivered orders
+SELECT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY order_approved_at::timestamp - order_purchase_timestamp::timestamp
+    ) AS median_time_to_approval
+FROM orders
+WHERE order_status = 'canceled'
+AND order_approved_at IS NOT NULL;
+
+
+SELECT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY order_approved_at::timestamp - order_purchase_timestamp::timestamp
+    ) AS median_time_to_approval
+FROM orders
+WHERE order_status = 'delivered'
+AND order_approved_at IS NOT NULL;
+
+-- cancelled orders take on average 19:42.5 and delivered 20.36
+
+
+-- Late stage cancellation
+-- cancelled orders should not reach carrier or customer
+SELECT
+    COUNT(*) AS suspicious_cancellations
+FROM orders
+WHERE order_status = 'canceled'
+AND (
+    order_delivered_carrier_date IS NOT NULL
+    OR order_delivered_customer_date IS NOT NULL
+);
