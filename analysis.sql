@@ -292,3 +292,38 @@ WHERE order_status = 'delivered'
 AND order_delivered_customer_date IS NOT NULL
 AND order_estimated_delivery_date IS NOT NULL
 AND (order_delivered_customer_date::timestamp - order_estimated_delivery_date::timestamp) > 0;
+
+SELECT
+    COUNT(*) AS total_delivered,
+    AVG(
+        CASE WHEN order_delivered_customer_date <= order_estimated_delivery_date
+        THEN 1 ELSE 0 END
+    ) AS on_time_rate
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date IS NOT NULL
+AND order_estimated_delivery_date IS NOT NULL;
+
+SELECT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY order_delivered_customer_date - order_estimated_delivery_date
+    ) AS median_delay,
+    PERCENTILE_CONT(0.9) WITHIN GROUP (
+        ORDER BY order_delivered_customer_date - order_estimated_delivery_date
+    ) AS p90_delay
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date > order_estimated_delivery_date;
+
+SELECT
+    CASE
+        WHEN order_delivered_customer_date <= order_estimated_delivery_date
+        THEN 'on_or_early'
+        ELSE 'late'
+    END AS delivery_group,
+    COUNT(*) AS orders
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date IS NOT NULL
+AND order_estimated_delivery_date IS NOT NULL
+GROUP BY delivery_group;
