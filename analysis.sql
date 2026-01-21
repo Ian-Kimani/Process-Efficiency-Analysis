@@ -559,3 +559,159 @@ WITH late_orders AS (
     AND o.order_delivered_customer_date > o.order_estimated_delivery_date
 )
 SELECT COUNT(*) FROM late_orders;
+
+
+-- Seller concentration of late deliveries
+WITH late_orders AS (
+    SELECT
+        o.order_id
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+    AND o.order_delivered_customer_date > o.order_estimated_delivery_date
+),
+seller_late AS (
+    SELECT
+        oi.seller_id,
+        COUNT(*) AS late_orders
+    FROM late_orders lo
+    JOIN order_items oi
+    ON lo.order_id = oi.order_id
+    GROUP BY oi.seller_id
+),
+ranked_sellers AS (
+    SELECT
+        seller_id,
+        late_orders,
+        SUM(late_orders) OVER () AS total_late,
+        SUM(late_orders) OVER (
+            ORDER BY late_orders DESC
+        ) AS cumulative_late
+    FROM seller_late
+)
+SELECT
+    seller_id,
+    late_orders,
+    cumulative_late::float / total_late AS cumulative_share
+FROM ranked_sellers
+ORDER BY late_orders DESC;
+
+-- Region(state) concentration
+
+WITH late_orders AS (
+    SELECT
+        o.order_id,
+        o.customer_id
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+    AND o.order_delivered_customer_date > o.order_estimated_delivery_date
+),
+state_late AS (
+    SELECT
+        c.customer_state,
+        COUNT(*) AS late_orders
+    FROM late_orders lo
+    JOIN customers c
+    ON lo.customer_id = c.customer_id
+    GROUP BY c.customer_state
+),
+ranked_states AS (
+    SELECT
+        customer_state,
+        late_orders,
+        SUM(late_orders) OVER () AS total_late,
+        SUM(late_orders) OVER (
+            ORDER BY late_orders DESC
+        ) AS cumulative_late
+    FROM state_late
+)
+SELECT
+    customer_state,
+    late_orders,
+    cumulative_late::float / total_late AS cumulative_share
+FROM ranked_states
+ORDER BY late_orders DESC;
+
+--  Ranking by rates
+SELECT
+    oi.seller_id,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    COUNT(DISTINCT CASE
+        WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+        THEN o.order_id
+    END) AS late_orders,
+    ROUND(
+        COUNT(DISTINCT CASE
+            WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+            THEN o.order_id
+        END)::numeric
+        / COUNT(DISTINCT o.order_id),
+        4
+    ) AS late_order_rate
+FROM orders o
+JOIN order_items oi
+    ON o.order_id = oi.order_id
+WHERE o.order_status = 'delivered'
+  AND o.order_delivered_customer_date IS NOT NULL
+  AND o.order_estimated_delivery_date IS NOT NULL
+GROUP BY oi.seller_id
+HAVING COUNT(DISTINCT o.order_id) >= 20   -- volume threshold, tune this
+ORDER BY late_order_rate DESC;
+
+
+SELECT
+    c.customer_state,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    COUNT(DISTINCT CASE
+        WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+        THEN o.order_id
+    END) AS late_orders,
+    ROUND(
+        COUNT(DISTINCT CASE
+            WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+            THEN o.order_id
+        END)::numeric
+        / COUNT(DISTINCT o.order_id),
+        4
+    ) AS late_order_rate
+FROM orders o
+JOIN customers c
+    ON o.customer_id = c.customer_id
+WHERE o.order_status = 'delivered'
+  AND o.order_delivered_customer_date IS NOT NULL
+  AND o.order_estimated_delivery_date IS NOT NULL
+GROUP BY c.customer_state
+HAVING COUNT(DISTINCT o.order_id) >= 100  -- regional volume filter
+ORDER BY late_order_rate DESC;
+
+-- seller x state
+
+SELECT
+    c.customer_state,
+    oi.seller_id,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    COUNT(DISTINCT CASE
+        WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+        THEN o.order_id
+    END) AS late_orders,
+    ROUND(
+        COUNT(DISTINCT CASE
+            WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date
+            THEN o.order_id
+        END)::numeric
+        / COUNT(DISTINCT o.order_id),
+        4
+    ) AS late_order_rate
+FROM orders o
+JOIN order_items oi
+    ON o.order_id = oi.order_id
+JOIN customers c
+    ON o.customer_id = c.customer_id
+WHERE o.order_status = 'delivered'
+  AND o.order_delivered_customer_date IS NOT NULL
+  AND o.order_estimated_delivery_date IS NOT NULL
+GROUP BY c.customer_state, oi.seller_id
+HAVING COUNT(DISTINCT o.order_id) >= 15
+ORDER BY late_order_rate DESC;
+
+
+
