@@ -545,3 +545,17 @@ AND order_delivered_carrier_date IS NOT NULL;
 
 -- While seller fulfillment contributes some delays, late deliveriesare overwhemingly driven by logistics failures.
 -- A small subset of orders experiences prolonged transit delays averaging 25 days, indicating concentrated breakdowns in last-mile delivery rather than systematic seller inefficiency;
+
+-- Are late deliveries driven by a small concentrated set of selllers or regions??
+
+
+-- Late = delivered after estimated date
+WITH late_orders AS (
+    SELECT
+        o.order_id,
+        o.customer_id
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+    AND o.order_delivered_customer_date > o.order_estimated_delivery_date
+)
+SELECT COUNT(*) FROM late_orders;
