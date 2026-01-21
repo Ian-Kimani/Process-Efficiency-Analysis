@@ -517,6 +517,8 @@ FROM orders
 WHERE order_status = 'delivered'
 AND order_approved_at IS NOT NULL
 AND order_delivered_carrier_date IS NOT NULL;
+-- A small fraction of orders sre getting absolutely wrecked in transit
+-- This is logistics failure concentration
 
 -- Compare phase contributions
 SELECT
@@ -529,3 +531,17 @@ AND order_approved_at IS NOT NULL
 AND order_delivered_carrier_date IS NOT NULL
 AND order_delivered_customer_date IS NOT NULL;
 
+-- Checks the late orders
+SELECT
+    AVG(order_delivered_customer_date::timestamp - order_estimated_delivery_date::timestamp) AS avg_late_days,
+    AVG(order_delivered_carrier_date::timestamp - order_approved_at::timestamp) AS avg_seller_delay,
+    AVG(order_delivered_customer_date::timestamp - order_delivered_carrier_date::timestamp) AS avg_logistics_delay
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date > order_estimated_delivery_date
+AND order_approved_at IS NOT NULL
+AND order_delivered_carrier_date IS NOT NULL;
+
+
+-- While seller fulfillment contributes some delays, late deliveriesare overwhemingly driven by logistics failures.
+-- A small subset of orders experiences prolonged transit delays averaging 25 days, indicating concentrated breakdowns in last-mile delivery rather than systematic seller inefficiency;
