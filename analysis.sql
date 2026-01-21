@@ -461,3 +461,71 @@ FROM joined_orders
 WHERE customer_delivered_ts > estimated_delivery_ts
 ;
 
+-- Eaarly vs late assymetry
+SELECT
+    CASE
+        WHEN order_delivered_customer_date <= order_estimated_delivery_date
+        THEN 'on_or_early'
+        ELSE 'late'
+    END AS delivery_group,
+    COUNT(*) AS orders
+FROM orders
+WHERE order_status = 'delivered'
+AND order_delivered_customer_date IS NOT NULL
+AND order_estimated_delivery_date IS NOT NULL
+GROUP BY delivery_group;
+
+
+-- Time from purchase to approval
+SELECT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY order_approved_at::timestamp - order_purchase_timestamp::timestamp
+    ) AS median_purchase_to_approval,
+    PERCENTILE_CONT(0.9) WITHIN GROUP (
+        ORDER BY order_approved_at::timestamp - order_purchase_timestamp::timestamp
+    ) AS p90_purchase_to_approval
+FROM orders
+WHERE order_status = 'delivered'
+AND order_approved_at IS NOT NULL;
+-- If it's long, payments or fraud checks are slow
+-- if short, move on
+
+-- Time from approval to carrier handoff
+SELECT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY order_delivered_carrier_date::timestamp - order_approved_at::timestamp
+    ) AS median_approval_to_carrier,
+    PERCENTILE_CONT(0.9) WITHIN GROUP (
+        ORDER BY order_delivered_carrier_date::timestamp - order_approved_at::timestamp
+    ) AS p90_approval_to_carrier
+FROM orders
+WHERE order_status = 'delivered'
+AND order_approved_at IS NOT NULL
+AND order_delivered_carrier_date IS NOT NULL;
+-- Long here,, sellers sitting on orders
+
+-- Time from carrier to customer (logistics reality)
+-- where distance, infrastructure and couriers dominate
+SELECT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (
+        ORDER BY order_delivered_carrier_date::timestamp - order_approved_at::timestamp
+    ) AS median_approval_to_carrier,
+    PERCENTILE_CONT(0.9) WITHIN GROUP (
+        ORDER BY order_delivered_carrier_date::timestamp - order_approved_at::timestamp
+    ) AS p90_approval_to_carrier
+FROM orders
+WHERE order_status = 'delivered'
+AND order_approved_at IS NOT NULL
+AND order_delivered_carrier_date IS NOT NULL;
+
+-- Compare phase contributions
+SELECT
+    AVG(order_approved_at::timestamp - order_purchase_timestamp::timestamp) AS avg_purchase_to_approval,
+    AVG(order_delivered_carrier_date::timestamp - order_approved_at::timestamp) AS avg_approval_to_carrier,
+    AVG(order_delivered_customer_date::timestamp - order_delivered_carrier_date::timestamp) AS avg_carrier_to_customer
+FROM orders
+WHERE order_status = 'delivered'
+AND order_approved_at IS NOT NULL
+AND order_delivered_carrier_date IS NOT NULL
+AND order_delivered_customer_date IS NOT NULL;
+
